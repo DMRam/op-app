@@ -69,16 +69,42 @@ export default function TabTwoScreen() {
   const [showGroups, setShowGroups] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [removed, setRemoved] = useState<boolean>(false)
+  const [expandedGroups, setExpandedGroups] = useState<{ [key: string]: boolean }>({});
+  const [expanded, setExpanded] = useState(false);
 
   // Recalculate filteredUsers whenever users or filters change
   useEffect(() => {
     const filtered = users.filter((user) => {
-      const matchesEnabled = !filterEnabled || user.isEnabled;
+
+      // Filtering by all users disable status
+      const matchesEnabled = !filterEnabled || user.isEnabled === false;
       const matchesEmail = user.emailAddress.toLowerCase().includes(searchEmail.toLowerCase());
       return matchesEnabled && matchesEmail;
     });
     setFilteredUsers(filtered);
   }, [users, filterEnabled, searchEmail, removed]);
+
+  const getDisabledUsersPerGroup = () => {
+    const groupMap: { [key: string]: { id: string; groupName: string; disabledCount: number } } = {};
+
+    users.forEach((user) => {
+      if (!user.isEnabled && user.groups) {
+        user.groups.forEach((group) => {
+          if (!groupMap[group.id]) {
+            groupMap[group.id] = {
+              id: group.id, // Ensure the ID is stored
+              groupName: group.groupName,
+              disabledCount: 0,
+            };
+          }
+          groupMap[group.id].disabledCount += 1;
+        });
+      }
+    });
+
+    return Object.values(groupMap); // Convert to an array of groups with disabled user counts
+  };
+
 
   // Fetch groups for enabled users
   const fetchGroupsForEnabledUsers = async () => {
@@ -108,6 +134,10 @@ export default function TabTwoScreen() {
               groups: groups,
             };
 
+            // Group 1 hast x number of users
+            // Group 2 hast x number of users
+            // Group 3 hast x number of users
+
             return userWithGroups;
           } catch (error) {
             console.error(`Error fetching groups for user ${id}:`, error);
@@ -127,6 +157,13 @@ export default function TabTwoScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId], // Toggle the expanded state
+    }));
   };
 
   const getUserById = async (id: string) => {
@@ -159,6 +196,7 @@ export default function TabTwoScreen() {
       const enabledUsers = response.data.filter((user) => user.isEnabled === false);
 
       setUsers(response.data);
+
       setIdsToGetGroups(enabledUsers.map((user) => user.id));
       setUser(null);
       setError(null);
@@ -193,22 +231,7 @@ export default function TabTwoScreen() {
     setShowGroups(false);
     setSelectedUserIds([]);
   };
-
-  const fetchUsersInGroup = async (groupId: string) => {
-    setLoading(true);
-    try {
-      const response = await axiosInstance.get<UserProfile[]>(`groups/${groupId}/users`);
-      setUsers(response.data);
-      setError(null);
-    } catch (error) {
-      console.error('Error fetching users in group:', error);
-      setError('Error fetching users in group');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Here I can pass the entire list of the users that needs to be removed from a single group
+  // Pass the entire list of the users that needs to be removed from a single group
   const removeUsersFromGroup = async (groupId: string, userIds: string[]) => {
     try {
       const response = await axiosInstance.delete(`groups/${groupId}/users`, {
@@ -231,44 +254,8 @@ export default function TabTwoScreen() {
     }
   };
 
-  const removeAllUsersFromGroup = async (groupId: string) => {
-    try {
-      const response = await axiosInstance.delete(`groups/${groupId}/users`);
-      if (response.status === 200) {
-        Alert.alert('Success', response.data.message);
-        fetchUsersInGroup(groupId);
-      } else {
-        Alert.alert('Error', response.data.error || 'Failed to remove users from group.');
-      }
-    } catch (error) {
-      console.error('Error removing users from group:', error);
-      Alert.alert('Error', 'An error occurred while removing users from the group.');
-    }
-  };
-
-  const toggleUserSelection = (userId: string) => {
-    setSelectedUserIds((prev) =>
-      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
-    );
-  };
-
-  const handleRemoveSelectedUsers = () => {
-    if (selectedUserIds.length === 0) {
-      Alert.alert('Info', 'No users selected.');
-      return;
-    }
-
-    Alert.alert(
-      'Confirm Removal',
-      `Are you sure you want to remove ${selectedUserIds.length} users from this group?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', onPress: () => removeUsersFromGroup(groupId, selectedUserIds) },
-      ]
-    );
-  };
-
   const renderUserItem = ({ item }: { item: UserProfile }) => {
+
     const handleRemoveUserFromGroup = (groupId: string) => {
       Alert.alert(
         "Remove User from Group",
@@ -281,40 +268,138 @@ export default function TabTwoScreen() {
     };
 
     return (
-      <TouchableOpacity
-        style={[styles.userContainer, selectedUserIds.includes(item.id) && styles.selectedUserContainer]}
-        onPress={() => toggleUserSelection(item.id)}
-      >
-        <Text style={styles.header}>Name:</Text>
-        <Text style={styles.itemText}>{item.firstName} {item.lastName}</Text>
-        <Text style={styles.header}>Username:</Text>
-        <Text style={styles.itemText}>{item.userName}</Text>
-        <Text style={styles.header}>Email:</Text>
-        <Text style={styles.itemText}>{item.emailAddress}</Text>
-        <Text style={styles.header}>Enabled:</Text>
-        <Text style={styles.itemText}>{item.isEnabled ? 'Yes' : 'No'}</Text>
-        {item.groups && item.groups.length > 0 ? (
-          <>
-            <Text style={styles.header}>Groups:</Text>
-            {item.groups.map((group) => (
-              <TouchableOpacity
-                key={group.id}
-                style={styles.groupContainer}
-                onLongPress={() => handleRemoveUserFromGroup(group.id)}
-              >
-                <Text style={styles.groupText}>Name: {group.groupName}</Text>
-                <Text style={styles.groupText}>Description: {group.description}</Text>
-                <Text style={styles.groupText}>Admin Level: {group.adminLevel}</Text>
-              </TouchableOpacity>
-            ))}
-          </>
-        ) : (
-          <Text style={styles.itemText}>No groups available</Text>
+      <View key={item.id}>
+        <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.accordionHeader}>
+          <Text style={styles.header}>{expanded ? '▼' : '▶'} {item.firstName} {item.lastName}</Text>
+        </TouchableOpacity>
+        {expanded && (
+          <View style={[styles.userContainer, selectedUserIds.includes(item.id) && styles.selectedUserContainer]}>
+            <Text style={styles.header}>Username:</Text>
+            <Text style={styles.itemText}>{item.userName}</Text>
+            <Text style={styles.header}>Email:</Text>
+            <Text style={styles.itemText}>{item.emailAddress}</Text>
+            <Text style={styles.header}>Enabled:</Text>
+            <Text style={styles.itemText}>{item.isEnabled ? 'Yes' : 'No'}</Text>
+
+            {item.groups && item.groups.length > 0 ? (
+              <>
+                <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.accordionHeader}>
+                  <Text style={styles.header}>Groups:</Text>
+                </TouchableOpacity>
+                {item.groups.map((group) => (
+                  <TouchableOpacity
+                    key={group.id} // Ensure each group has a unique key
+                    style={styles.groupContainer}
+                    onLongPress={() => handleRemoveUserFromGroup(group.id)}
+                  >
+                    <Text style={styles.groupText}>Name: {group.groupName}</Text>
+                    <Text style={styles.groupText}>Description: {group.description}</Text>
+                    <Text style={styles.groupText}>Admin Level: {group.adminLevel}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            ) : (
+              <Text style={styles.itemText}>No groups available</Text>
+            )}
+            {selectedUserIds.includes(item.id) && <Text style={styles.selectedIcon}>✓</Text>}
+          </View>
         )}
-        {selectedUserIds.includes(item.id) && <Text style={styles.selectedIcon}>✓</Text>}
-      </TouchableOpacity>
+      </View>
+    );
+
+  };
+
+
+  interface Group {
+    id: string;
+    groupName: string;
+    description: string;
+    isLocked: boolean;
+    isHidden: boolean;
+    isDeleted: boolean;
+    isEnabled: boolean;
+    isEditable: boolean;
+    hasMembers: boolean;
+    adminLevel: number;
+  }
+
+  const renderGroupCards = () => {
+    // Use the correct inferred type instead of forcing it to be `Group[]`
+    const disabledUsersPerGroup = getDisabledUsersPerGroup();
+
+    return disabledUsersPerGroup.map((group) => (
+      <View key={group.id || group.groupName} style={styles.groupCard}>
+        <TouchableOpacity
+          onPress={() => toggleGroup(group.groupName)}
+          style={styles.groupHeader}
+        >
+          <View style={{ flexDirection: 'column', marginVertical: 2 }}>
+            <Text style={styles.groupName}>{group.groupName}</Text>
+            <Text style={styles.disabledCount}>
+              {group.disabledCount} disabled users
+            </Text>
+          </View>
+
+          <Text style={styles.accordionIcon}>
+            {expandedGroups[group.groupName] ? '▲' : '▼'}
+          </Text>
+        </TouchableOpacity>
+
+        {expandedGroups[group.groupName] && (
+          <View style={styles.groupContent}>
+            <FlatList
+              data={users.filter(
+                (user) =>
+                  !user.isEnabled &&
+                  user.groups?.some((g) => g.groupName === group.groupName)
+              )}
+              renderItem={({ item }) => (
+                <View style={styles.userItem} key={item.id || item.userName}>
+                  <Text style={styles.userName}>{item.userName}</Text>
+                  <Text style={styles.userEmail}>{item.emailAddress}</Text>
+                </View>
+              )}
+              keyExtractor={(item) => item.id || item.userName}
+              scrollEnabled={false}
+            />
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => handleDeleteDisabledUsers(group.groupName)}
+            >
+              <Text style={styles.deleteButtonText}>Delete Disabled Users</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    ));
+  };
+
+
+
+  const handleDeleteDisabledUsers = (groupName: string) => {
+    // Find all disabled users in the specified group
+    const disabledUserIds = users
+      .filter((user) => !user.isEnabled && user.groups?.some((group) => group.groupName === groupName))
+      .map((user) => user.id);
+
+    if (disabledUserIds.length === 0) {
+      Alert.alert('Info', 'No disabled users found in this group.');
+      return;
+    }
+
+    Alert.alert(
+      'Confirm Removal',
+      `Are you sure you want to remove ${disabledUserIds.length} disabled users from ${groupName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          onPress: () => removeUsersFromGroup(groupName, disabledUserIds),
+        },
+      ]
     );
   };
+
 
   if (loading) {
     return (
@@ -373,10 +458,10 @@ export default function TabTwoScreen() {
             </View>
           </>
         ) : users.length > 0 ? (
-          <>
+          <View key={userId}>
             {/* Filters */}
             <View style={styles.filterContainer}>
-              <Text style={styles.filterLabel}>Show Enabled Users Only:</Text>
+              <Text style={styles.filterLabel}>Show Disabled Users Only:</Text>
               <Switch
                 value={filterEnabled}
                 onValueChange={(value) => setFilterEnabled(value)}
@@ -392,21 +477,12 @@ export default function TabTwoScreen() {
               placeholderTextColor="#999"
             />
             <TouchableOpacity onPress={fetchGroupsForEnabledUsers} style={styles.button}>
-              <Text style={styles.buttonText}>Fetch Groups for Enabled Users</Text>
+              <Text style={styles.buttonText}>Fetch Groups for Disabled Users</Text>
             </TouchableOpacity>
-            <Button
-              title="Remove Selected Users"
-              onPress={handleRemoveSelectedUsers}
-              color="#ff4444"
-              disabled={selectedUserIds.length === 0}
-            />
-            <FlatList
-              data={filteredUsers}
-              renderItem={renderUserItem}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-            />
-          </>
+            {/* Render group cards with accordion */}
+            {renderGroupCards()}
+            {filteredUsers.map((user) => renderUserItem({ item: user }))}
+          </View>
         ) : null}
         {error && (
           <View style={styles.errorContainer}>
@@ -448,6 +524,62 @@ const styles = StyleSheet.create({
   },
   selectedUserContainer: {
     backgroundColor: '#c3e6cb',
+  },
+  groupCard: {
+    marginVertical: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    overflow: 'hidden', // Ensure content doesn't overflow
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f5f5f5',
+  },
+  groupName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  disabledCount: {
+    fontSize: 16,
+    color: '#ff4444',
+    marginTop: 5
+  },
+  accordionIcon: {
+    fontSize: 18,
+    color: '#007bff',
+  },
+  groupContent: {
+    padding: 16,
+  },
+  userItem: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  userEmail: {
+    fontSize: 14,
+    color: '#666',
+  },
+  deleteButton: {
+    backgroundColor: '#ff4444',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   groupContainer: {
     marginVertical: 8,
@@ -542,4 +674,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#28a745',
   },
+  accordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+    marginTop: 8,
+  },
+
+
 });
